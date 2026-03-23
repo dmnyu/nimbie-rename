@@ -1,0 +1,54 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="420"
+        x:Class="Nimbie_Rename_UI.MainWindow"
+        Title="Nimbie_Rename_UI">
+
+
+	<Grid RowDefinitions="Auto,Auto,Auto,Auto,*"
+		  Margin="15"
+		  RowSpacing="12">
+
+		<!-- Title -->
+		<TextBlock Text="Nimbie ISO Renamer"
+				   FontSize="22"
+				   FontWeight="Bold" />
+
+		<!-- Paths -->
+		<Border Grid.Row="1" Padding="10" CornerRadius="8" Background="#003153">
+			<StackPanel Spacing="10">
+
+				<TextBlock Text="Image Directory" Foreground="White"/>
+				<Grid ColumnDefinitions="Auto,*">
+					<Button Content="Browse" Click="PickImageFolder" Background="#CCCCCC" Grid.Column="0"/>
+					<TextBox Name="ImagePathBox" Margin="6,0,0,0" HorizontalAlignment="Stretch" Grid.Column="1" Background="#FFFFFF"/>
+				</Grid>
+
+				<TextBlock Text="Manifest File" Foreground="White"/>
+				<Grid ColumnDefinitions="Auto,*">
+					<Button Content="Browse" Click="PickManifestFile" Grid.Column="0" Background="#CCCCCC"/>
+					<TextBox Name="ManifestPathBox" Margin="6,0,0,0" HorizontalAlignment="Stretch" Grid.Column="1" Background="#FFFFFF"/>	
+				</Grid>
+
+			</StackPanel>
+		</Border>
+
+		<!-- Actions -->
+			<StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10">
+				<Button Name="RunButton" Content="Run" Width="100" Click="RunProcess"/>
+				<CheckBox Name="DryRunCheckBox" Content="Dry Run (no file changes)"/>
+				<Button Content="Clear Log" Click="ClearLog"/>
+				<Button Content="Save Log" Click="SaveLog"/>
+			</StackPanel>
+
+
+		<!-- Output -->
+		<Border Grid.Row="5" Padding="8" CornerRadius="8" Background="#003153">
+			<TextBox Name="OutputBox" AcceptsReturn="True" IsReadOnly="True" FontFamily="Consolas" Background="#FFFFFF" />
+		</Border>
+		
+	</Grid>
+
+</Window>
