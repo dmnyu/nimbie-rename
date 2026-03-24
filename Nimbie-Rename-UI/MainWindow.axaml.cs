@@ -1,15 +1,25 @@
 ﻿using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace Nimbie_Rename_UI
 {
     public partial class MainWindow : Window
     {
+        const int sampleRate = 44100;
+        const short bitsPerSample = 16;
+        const short channels = 2;
+        bool testMode;
+        string? imageDirectory;
+        string? manifestFile;
+        List<string> filenames;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -51,12 +61,15 @@ namespace Nimbie_Rename_UI
 
         private void Log(string message)
         {
-            OutputBox.Text += $"{DateTime.Now:HH:mm:ss}  {message}\n";
+            Dispatcher.UIThread.Post(() =>
+            {
+                OutputBox.Text += $"{DateTime.Now:HH:mm:ss}  {message}\n";
+            });
         }
 
         private void ClearLog(object? sender, RoutedEventArgs e)
         {
-            OutputBox.Text = "";   
+            OutputBox.Text = "";
         }
 
         private void SaveLog(object? sender, RoutedEventArgs e)
@@ -79,125 +92,193 @@ namespace Nimbie_Rename_UI
             using var outputFile = File.Create(logFilePath);
             using var writer = new StreamWriter(outputFile);
             writer.Write(OutputBox.Text);
-            
+
             Log($"log saved to {logFilePath}");
         }
 
-        private void RunProcess(object? sender, RoutedEventArgs e)
+
+
+
+        private async void RunProcess(object? sender, RoutedEventArgs e)
         {
-            var imageLocation = ImagePathBox.Text;
-            var manifestFile = ManifestPathBox.Text;
-
-            if (DryRunCheckBox.IsChecked == true)
+            if (string.IsNullOrWhiteSpace(ImagePathBox.Text) || string.IsNullOrWhiteSpace(ManifestPathBox.Text))
             {
-                Log("running in test mode");
+                return;
             }
+            imageDirectory = ImagePathBox.Text;
+            manifestFile = ManifestPathBox.Text;
 
-            if (!Directory.Exists(imageLocation) || !File.Exists(manifestFile))
+            if (string.IsNullOrWhiteSpace(imageDirectory))
             {
-                Log("Invalid paths.");
                 return;
             }
 
-            var filenames = File.ReadLines(manifestFile).ToList();
-            
-            HashSet<string> directories = new HashSet<String>();
-            foreach(string filename in filenames)
+            if (DryRunCheckBox.IsChecked == true)
             {
-                directories.Add(Path.Combine(imageLocation, filename));
-               
+                testMode = true;
+            }
+            else
+            {
+                testMode = false;
             }
 
-            foreach (string directoryName in directories) {
-                var targetDirectory = Path.Combine(imageLocation, directoryName);
-                Log($"creating directory: {targetDirectory}");
-                Directory.CreateDirectory(targetDirectory);
+            await Task.Run(() =>
+            {
+                if (testMode)
+                {
+                    Log("running in test mode");
+                }
+
+                if (!Directory.Exists(imageDirectory) || !File.Exists(manifestFile))
+                {
+                    Log("Invalid paths.");
+                    return;
+                }
+
+                RemoveArtifacts();
+                ConvertImgToWav();
+                CreateDirectories();
+                RenameFiles();
+            });
+
+            Log("done.");
+        }
+
+        private void RemoveArtifacts()
+        {
+            var allowedExtensions = new List<string>() { ".cdt", ".ccd" };
+            var artifacts = Directory
+                .GetFiles(imageDirectory!)
+                .Where(f => allowedExtensions.Contains(Path.GetExtension(f)))
+                .ToList();
+
+            foreach (var artifact in artifacts)
+            {
+                if (testMode){
+                    Log($"[TEST] removing {artifact}");
+                } else
+                {
+                    Log($"removing {artifact}");
+                    File.Delete(artifact);
+                }     
+            }
+        }
+
+        private void ConvertImgToWav()
+        {
+            var allowedExtensions = new List<string>() { ".img" };
+            var imgPaths = Directory
+                .GetFiles(imageDirectory!)
+                .Where(f => allowedExtensions.Contains(Path.GetExtension(f)))
+                .ToList();
+
+            foreach(string imgPath in imgPaths)
+            {
+                var wavPath = imgPath.Replace(".img", ".wav");
+                if (testMode)
+                {
+                    Log($"[TEST] converting {imgPath} to {wavPath}");
+                } else {
+                    Log($"converting {imgPath} to {wavPath}");
+                    byte[] audioData = File.ReadAllBytes(imgPath);
+                    using (var fs = new FileStream(wavPath, FileMode.Create))
+                    using (var bw = new BinaryWriter(fs))
+                    {
+                        int byteRate = sampleRate * channels * bitsPerSample / 8;
+                        short blockAlign = (short)(channels * bitsPerSample / 8);
+
+                        // WAV header
+                        bw.Write(System.Text.Encoding.ASCII.GetBytes("RIFF"));
+                        bw.Write(36 + audioData.Length);
+                        bw.Write(System.Text.Encoding.ASCII.GetBytes("WAVE"));
+
+                        // fmt subchunk
+                        bw.Write(System.Text.Encoding.ASCII.GetBytes("fmt "));
+                        bw.Write(16); // PCM
+                        bw.Write((short)1); // PCM format
+                        bw.Write(channels);
+                        bw.Write(sampleRate);
+                        bw.Write(byteRate);
+                        bw.Write(blockAlign);
+                        bw.Write(bitsPerSample);
+
+                        // data subchunk
+                        bw.Write(System.Text.Encoding.ASCII.GetBytes("data"));
+                        bw.Write(audioData.Length);
+                        bw.Write(audioData);
+                    }
+
+                    File.SetCreationTimeUtc(wavPath, File.GetCreationTimeUtc(imgPath));
+                    File.SetLastWriteTimeUtc(wavPath, File.GetLastWriteTimeUtc(imgPath));
+                    File.SetLastAccessTimeUtc(wavPath, File.GetLastAccessTimeUtc(imgPath));
+                    Log($"deleting {imgPath}");
+                    File.Delete(imgPath);
+                }
+
+            }
+        }
+
+
+
+        private void CreateDirectories()
+        {
+
+            filenames = File.ReadLines(manifestFile!).ToList();
+
+            HashSet<string> directories = new HashSet<String>();
+            foreach (string filename in filenames)
+            {
+                directories.Add(Path.Combine(imageDirectory!, filename));
             }
 
+            foreach (string directoryName in directories)
+            {
+                var targetDirectory = Path.Combine(imageDirectory!, directoryName);
+                if (testMode) { Log($"[TEST] creating directory: {targetDirectory}"); }
+                else
+                {
+                    Log($"creating directory: {targetDirectory}");
+                    Directory.CreateDirectory(targetDirectory);
+                }
+            }
 
-            var allowedExtensions = new[] { ".iso", ".img" };
+        }
 
-            var ImageFiles = Directory
-                .GetFiles(imageLocation)
+        private void RenameFiles()
+        {
+            var allowedExtensions = new[] { ".iso", ".wav" };
+            var imageFiles = Directory
+                .GetFiles(imageDirectory!)
                 .Where(f => allowedExtensions.Contains(
                     Path.GetExtension(f),
                     StringComparer.OrdinalIgnoreCase))
                 .ToDictionary(f => f, f => File.GetLastWriteTime(f));
 
-
-            Log($"found {filenames.Count} filenames and {ImageFiles.Count} iso files");
-            var sortedFileDates = ImageFiles.OrderBy(x => x.Value).ToList();               
             
+            
+            var sortedFileDates = imageFiles.OrderBy(x => x.Value).ToList();
             for (int i = 0; i < sortedFileDates.Count; i++)
             {
+                var newFilename = filenames[i];
                 var fileDate = sortedFileDates[i];
-                var path = Path.GetDirectoryName(fileDate.Key)!;
-                var filename = Path.GetFileName(fileDate.Key);
-                var ext = Path.GetExtension(filename).ToLower();
-                var newPath = Path.Combine(path, filenames[i] + ext);
-                var basename = filename.Replace(ext, "");
-
-                if (DryRunCheckBox.IsChecked == true)
+                var originalPath = fileDate.Key;
+                var originalTimeStamp = fileDate.Value;
+                var originalFilename = Path.GetFileName(originalPath);
+                var originalExtension = Path.GetExtension(originalPath).ToLower();
+                var targetFilename = newFilename + originalExtension;
+                var targetPath = Path.Combine(imageDirectory!, newFilename, targetFilename);
+                RenameFile(originalPath, targetPath, originalTimeStamp);
+                if(originalExtension == ".wav")
                 {
-                    Log($"TEST: renaming {fileDate.Key} ({fileDate.Value}) to {newPath}");
-                }
-                else
-                {
-                    RenameFile(fileDate.Key, newPath, fileDate.Value);
-                }
-                if (ext == ".img")
-                {
-                    var files = Directory
-                        .EnumerateFiles(path)
-                        .Where(f => Path.GetFileName(f).StartsWith(basename));
-                    foreach (string artifactPath in files)
-                    {
-                        var artifactFilename = Path.GetFileName(artifactPath);
-                        if (artifactFilename != filename)
-                        {
-                            var artifactExtension = Path.GetExtension(artifactFilename).ToLower();
-                            var newArtifactPath = Path.Combine(path, filenames[i] + artifactExtension);
-                            if (DryRunCheckBox.IsChecked == true)
-                            {
-                                Log($"TEST: renaming {artifactPath} to {newArtifactPath}");
-                            }
-                            else
-                            {
-                                RenameFile(artifactPath, newArtifactPath, File.GetLastWriteTime(artifactPath));    
-                            }
-                        }
-                    }
+                    var originalCueFile = originalFilename.Replace(".wav", ".cue");
+                    UpdateCueFile(originalCueFile, newFilename);
                 }
             }
-
-            //move the files
-            allowedExtensions = allowedExtensions.Append(".cue")
-                .Append(".ccd")
-                .Append(".cdt")
-                .ToArray();
-
-            var renamedFiles = Directory
-                .GetFiles(imageLocation)
-                .Where(f => allowedExtensions.Contains(
-                    Path.GetExtension(f),
-                    StringComparer.OrdinalIgnoreCase));
-
-            foreach(string renamedFile in renamedFiles)
-            {
-                var filename = Path.GetFileName(renamedFile);
-                var extension = Path.GetExtension(filename);
-                var basename = filename.Replace(extension, "");
-                var targetFile = Path.Combine(imageLocation, basename, filename);
-                RenameFile(renamedFile, targetFile, File.GetLastWriteTime(filename));
-            }
-
-
-            Log("done.");
         }
 
-        private void RenameFile(string originalPath, string newPath, DateTime timeStamp)
+        private void RenameFile(string originalPath, string newPath, DateTime timestamp)
         {
-            Log($"renaming {originalPath} (timestamp) to {newPath}");
+            Log($"renaming {originalPath} ({timestamp}) to {newPath}");
             try
             {
                 File.Move(originalPath, newPath);
@@ -215,5 +296,25 @@ namespace Nimbie_Rename_UI
                 Log($"Unexpected error: {ex.Message}");
             }
         }
+
+        private void UpdateCueFile(string cueFile, string newFilename)
+        {
+            var originalPath = Path.Combine(imageDirectory, cueFile);
+            var cuePath = Path.Combine(imageDirectory, newFilename, newFilename + ".cue");
+            var wavFile = newFilename + ".wav";
+            File.Move(originalPath, cuePath);
+            Log($"updating {cuePath}");
+            var lines = File.ReadAllLines(cuePath);
+            lines = Array.FindAll(lines, line => !line.TrimStart().StartsWith("CDTEXTFILE", StringComparison.OrdinalIgnoreCase));
+            lines = lines.Select(line =>
+            {
+                if (line.TrimStart().StartsWith("FILE ", StringComparison.OrdinalIgnoreCase))
+                    return $"FILE \"{wavFile}\" WAVE";
+                return line;
+            }).ToArray();
+
+            File.WriteAllLines(cuePath, lines);
+        }
+
     }
 }
