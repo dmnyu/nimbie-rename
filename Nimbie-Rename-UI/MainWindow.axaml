@@ -4,7 +4,8 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="420"
         x:Class="Nimbie_Rename_UI.MainWindow"
-        Title="Nimbie_Rename_UI">
+        Title="Nimbie Iso Process"
+		Icon="/Assets/cd.ico">
 
 
 	<Grid RowDefinitions="Auto,Auto,Auto,Auto,*"
@@ -20,16 +21,10 @@
 		<Border Grid.Row="1" Padding="10" CornerRadius="8" Background="#003153">
 			<StackPanel Spacing="10">
 
-				<TextBlock Text="Image Directory" Foreground="White"/>
+				<TextBlock Text="Nimbie Output Directory" Foreground="White"/>
 				<Grid ColumnDefinitions="Auto,*">
 					<Button Content="Browse" Click="PickImageFolder" Background="#CCCCCC" Grid.Column="0"/>
 					<TextBox Name="ImagePathBox" Margin="6,0,0,0" HorizontalAlignment="Stretch" Grid.Column="1" Background="#FFFFFF"/>
-				</Grid>
-
-				<TextBlock Text="Manifest File" Foreground="White"/>
-				<Grid ColumnDefinitions="Auto,*">
-					<Button Content="Browse" Click="PickManifestFile" Grid.Column="0" Background="#CCCCCC"/>
-					<TextBox Name="ManifestPathBox" Margin="6,0,0,0" HorizontalAlignment="Stretch" Grid.Column="1" Background="#FFFFFF"/>	
 				</Grid>
 
 			</StackPanel>
@@ -41,6 +36,7 @@
 				<CheckBox Name="DryRunCheckBox" Content="Dry Run (no file changes)"/>
 				<Button Content="Clear Log" Click="ClearLog"/>
 				<Button Content="Save Log" Click="SaveLog"/>
+				<Button Content="Exit" Click="ExitApp"/>
 			</StackPanel>
 
 

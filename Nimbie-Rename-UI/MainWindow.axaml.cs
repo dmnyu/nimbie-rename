@@ -2,6 +2,7 @@
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using DiscUtils.Iso9660;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -18,12 +19,15 @@ namespace Nimbie_Rename_UI
         bool testMode;
         string? imageDirectory;
         string? manifestFile;
-        List<string> filenames;
+        List<string>? filenames;
+        List<string> metaFormats = new List<string>() {"audio", "video", "data" };
+        Dictionary<string, string> imageFormats = new Dictionary<string, string>() { };
 
         public MainWindow()
         {
             InitializeComponent();
         }
+
         private async void PickImageFolder(object? sender, RoutedEventArgs e)
         {
             if (StorageProvider is null)
@@ -54,9 +58,6 @@ namespace Nimbie_Rename_UI
                 AllowMultiple = false,
                 FileTypeFilter = null // You can add filters if needed
             });
-
-            if (files != null && files.Count > 0)
-                ManifestPathBox.Text = files[0].Path.LocalPath;
         }
 
         private void Log(string message)
@@ -96,17 +97,19 @@ namespace Nimbie_Rename_UI
             Log($"log saved to {logFilePath}");
         }
 
-
+        private void ExitApp(object? sender, RoutedEventArgs e)
+        {
+            this.Close();
+        }
 
 
         private async void RunProcess(object? sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(ImagePathBox.Text) || string.IsNullOrWhiteSpace(ManifestPathBox.Text))
+            if (string.IsNullOrWhiteSpace(ImagePathBox.Text))
             {
                 return;
             }
             imageDirectory = ImagePathBox.Text;
-            manifestFile = ManifestPathBox.Text;
 
             if (string.IsNullOrWhiteSpace(imageDirectory))
             {
@@ -129,19 +132,33 @@ namespace Nimbie_Rename_UI
                     Log("running in test mode");
                 }
 
-                if (!Directory.Exists(imageDirectory) || !File.Exists(manifestFile))
+                if (!Directory.Exists(imageDirectory))
                 {
                     Log("Invalid paths.");
                     return;
                 }
 
+                FindManifest();
                 RemoveArtifacts();
                 ConvertImgToWav();
                 CreateDirectories();
                 RenameFiles();
+                MoveDirectories();
             });
 
             Log("done.");
+        }
+
+        private void FindManifest()
+        {
+            var manifestPath = Path.Combine(imageDirectory!, "nimbie-manifest.txt");
+            if (File.Exists(manifestPath))
+            {
+                manifestFile = manifestPath;
+            } else
+            {
+                Log($"Found {manifestFile}");
+            }
         }
 
         private void RemoveArtifacts()
@@ -242,6 +259,16 @@ namespace Nimbie_Rename_UI
                 }
             }
 
+            foreach (string metaFormat in metaFormats) {
+                if (testMode) { Log($"[TEST] creating directory: {metaFormat}"); }
+                else
+                {
+                    Log($"creating directory: {metaFormat}");
+                    Directory.CreateDirectory(Path.Combine(imageDirectory!, metaFormat));
+                }
+                
+            }
+
         }
 
         private void RenameFiles()
@@ -272,6 +299,16 @@ namespace Nimbie_Rename_UI
                 {
                     var originalCueFile = originalFilename.Replace(".wav", ".cue");
                     UpdateCueFile(originalCueFile, newFilename);
+                    imageFormats.Add(newFilename, "audio");
+                } else
+                {
+                    if (IsDVD(targetPath))
+                    {
+                        imageFormats.Add(newFilename, "video");
+                    } else
+                    {
+                        imageFormats.Add(newFilename, "data");
+                    }
                 }
             }
         }
@@ -299,8 +336,8 @@ namespace Nimbie_Rename_UI
 
         private void UpdateCueFile(string cueFile, string newFilename)
         {
-            var originalPath = Path.Combine(imageDirectory, cueFile);
-            var cuePath = Path.Combine(imageDirectory, newFilename, newFilename + ".cue");
+            var originalPath = Path.Combine(imageDirectory!, cueFile);
+            var cuePath = Path.Combine(imageDirectory!, newFilename, newFilename + ".cue");
             var wavFile = newFilename + ".wav";
             File.Move(originalPath, cuePath);
             Log($"updating {cuePath}");
@@ -314,6 +351,31 @@ namespace Nimbie_Rename_UI
             }).ToArray();
 
             File.WriteAllLines(cuePath, lines);
+        }
+
+        private bool IsDVD(string isoPath)
+        {
+            using var isoStream = File.OpenRead(isoPath);
+
+            if (!CDReader.Detect(isoStream))
+                return false;
+
+            isoStream.Position = 0;
+
+            using var cd = new CDReader(isoStream, true);
+
+            return cd.GetDirectories(@"\").Any(dir =>
+                string.Equals(Path.GetFileName(dir), "VIDEO_TS", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private void MoveDirectories()
+        {
+            foreach (KeyValuePair<string, string> imgFormat in imageFormats) {
+                var sourceDirectory = Path.Combine(imageDirectory!, imgFormat.Key);
+                var targetDirectory = Path.Combine(imageDirectory!, imgFormat.Value, imgFormat.Key);
+                Log($"Moving {sourceDirectory} to {targetDirectory}");
+                Directory.Move(sourceDirectory, targetDirectory);
+            }
         }
 
     }
